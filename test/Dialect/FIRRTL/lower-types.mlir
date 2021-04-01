@@ -654,3 +654,20 @@ firrtl.circuit "Reg" {
   // CHECK: firrtl.regreset
   // CHECK-SAME: annotations = [{b = "b"}]
 }
+
+// -----
+
+// Test that annotations on aggregate ports are copied;
+firrtl.circuit "Port" {
+  firrtl.extmodule @Sub(!firrtl.vector<uint<1>, 2> {firrtl.annotations = [{a}], firrtl.name = "a"})
+  // CHECK: firrtl.extmodule
+  // CHECK-COUNT-2: firrtl.annotations = [{a}]
+  // CHECK-NOT: firrtl.annotations = [{a}]
+  firrtl.module @Port(%a: !firrtl.vector<uint<1>, 2> {firrtl.annotations = [{b}]}) {
+    %sub_a = firrtl.instance @Sub  {name = "sub", portNames = ["a"]} : !firrtl.flip<vector<uint<1>, 2>>
+    firrtl.connect %sub_a, %a : !firrtl.flip<vector<uint<1>, 2>>, !firrtl.vector<uint<1>, 2>
+  }
+  // CHECK: firrtl.module
+  // CHECK-COUNT-2: firrtl.annotations = [{b}]
+  // CHECK-NOT: firrtl.annotations = [{b}]
+}
