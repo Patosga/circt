@@ -31,6 +31,7 @@ bool isExpression(Operation *op);
 struct ModulePortInfo {
   StringAttr name;
   FIRRTLType type;
+  ArrayAttr annotations = ArrayAttr({});
 
   StringRef getName() const { return name ? name.getValue() : ""; }
 

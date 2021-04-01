@@ -264,7 +264,8 @@ void firrtl::getModulePortInfo(Operation *op,
   for (unsigned i = 0, e = argTypes.size(); i < e; ++i) {
     auto argAttrs = ::mlir::impl::getArgAttrs(op, i);
     auto type = argTypes[i].cast<FIRRTLType>();
-    results.push_back({getFIRRTLNameAttr(argAttrs), type});
+    auto attrs = getFIRRTLNameAttrAndAnnotations(argAttrs);
+    results.push_back({attrs.first, type, attrs.second});
   }
 }
 
@@ -283,17 +284,23 @@ static void buildModule(OpBuilder &builder, OperationState &result,
   auto type = builder.getFunctionType(argTypes, /*resultTypes*/ {});
   result.addAttribute(getTypeAttrName(), TypeAttr::get(type));
 
-  // Record the names of the arguments if present.
+  // Record the names of the arguments if present.  If annotations exist add
+  // them.
   SmallString<8> attrNameBuf;
   for (size_t i = 0, e = ports.size(); i != e; ++i) {
+    // If the port doesn't have a name, then it also can't have an
+    // annotation.  Bail out if the name doesn't exist.
     if (ports[i].getName().empty())
       continue;
 
-    auto argAttr =
-        NamedAttribute(builder.getIdentifier("firrtl.name"), ports[i].name);
+    SmallVector<NamedAttribute, 2> attrs;
+    attrs.push_back({builder.getIdentifier("firrtl.name"), ports[i].name});
+
+    if (auto a = ports[i].annotations)
+      attrs.push_back({builder.getIdentifier("firrtl.annotations"), a});
 
     result.addAttribute(getArgAttrName(i, attrNameBuf),
-                        builder.getDictionaryAttr(argAttr));
+                        builder.getDictionaryAttr(attrs));
   }
 
   result.addRegion();

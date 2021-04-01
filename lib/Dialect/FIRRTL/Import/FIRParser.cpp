@@ -2608,7 +2608,7 @@ struct FIRModuleParser : public FIRScopedParser {
 private:
   using PortInfoAndLoc = std::pair<ModulePortInfo, SMLoc>;
   ParseResult parsePortList(SmallVectorImpl<PortInfoAndLoc> &result,
-                            unsigned indent);
+                            unsigned indent, StringRef moduleTarget);
 
   CircuitOp circuit;
   SymbolTable symbolTable;
@@ -2628,7 +2628,7 @@ private:
 ///
 ParseResult
 FIRModuleParser::parsePortList(SmallVectorImpl<PortInfoAndLoc> &result,
-                               unsigned indent) {
+                               unsigned indent, StringRef moduleTarget) {
   // Parse any ports.
   while (getToken().isAny(FIRToken::kw_input, FIRToken::kw_output) &&
          // Must be nested under the module.
@@ -2663,9 +2663,12 @@ FIRModuleParser::parsePortList(SmallVectorImpl<PortInfoAndLoc> &result,
     if (isOutput)
       type = FlipType::get(type);
 
+    ArrayAttr annotations = ArrayAttr({});
+    getAnnotations(getModuleTarget() + ">" + name.getValue(), annotations);
+
     // FIXME: We should persist the info loc into the IR, not just the name
     // and type.
-    result.push_back({{name, type}, info.getFIRLoc()});
+    result.push_back({{name, type, annotations}, info.getFIRLoc()});
   }
 
   return success();
@@ -2684,6 +2687,8 @@ ParseResult FIRModuleParser::parseExtModule(unsigned indent) {
   StringAttr name;
   SmallVector<PortInfoAndLoc, 4> portListAndLoc;
 
+  auto builder = circuit.getBodyBuilder();
+
   LocWithInfo info(getToken().getLoc(), this);
   if (parseId(name, "expected module name"))
     return failure();
@@ -2692,10 +2697,9 @@ ParseResult FIRModuleParser::parseExtModule(unsigned indent) {
   getState().moduleTarget = moduleTarget;
 
   if (parseToken(FIRToken::colon, "expected ':' in extmodule definition") ||
-      parseOptionalInfo(info) || parsePortList(portListAndLoc, indent))
+      parseOptionalInfo(info) ||
+      parsePortList(portListAndLoc, indent, moduleTarget))
     return failure();
-
-  auto builder = circuit.getBodyBuilder();
 
   // Create the module.
   SmallVector<ModulePortInfo, 4> portList;
@@ -2790,6 +2794,8 @@ ParseResult FIRModuleParser::parseModule(unsigned indent) {
   StringAttr name;
   SmallVector<PortInfoAndLoc, 4> portListAndLoc;
 
+  auto builder = circuit.getBodyBuilder();
+
   consumeToken(FIRToken::kw_module);
   if (parseId(name, "expected module name"))
     return failure();
@@ -2798,10 +2804,9 @@ ParseResult FIRModuleParser::parseModule(unsigned indent) {
   getState().moduleTarget = moduleTarget;
 
   if (parseToken(FIRToken::colon, "expected ':' in module definition") ||
-      parseOptionalInfo(info) || parsePortList(portListAndLoc, indent))
+      parseOptionalInfo(info) ||
+      parsePortList(portListAndLoc, indent, moduleTarget))
     return failure();
-
-  auto builder = circuit.getBodyBuilder();
 
   // Create the module.
   SmallVector<ModulePortInfo, 4> portList;
