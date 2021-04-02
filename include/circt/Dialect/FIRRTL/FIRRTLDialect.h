@@ -45,6 +45,11 @@ private:
 /// value.
 StringAttr getFIRRTLNameAttr(ArrayRef<NamedAttribute> attrs);
 
+/// If the specified attribute list has a firrtl.name attribute, return its
+/// value and any annotations.
+std::pair<StringAttr, ArrayAttr>
+getFIRRTLNameAttrAndAnnotations(ArrayRef<NamedAttribute> attrs);
+
 } // namespace firrtl
 } // namespace circt
 

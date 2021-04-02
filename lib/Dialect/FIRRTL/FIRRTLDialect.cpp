@@ -36,6 +36,28 @@ StringAttr firrtl::getFIRRTLNameAttr(ArrayRef<NamedAttribute> attrs) {
   return StringAttr();
 }
 
+/// If the specified attribute set contains the firrtl.name attribute,
+/// return it and any annotations.
+std::pair<StringAttr, ArrayAttr>
+firrtl::getFIRRTLNameAttrAndAnnotations(ArrayRef<NamedAttribute> attrs) {
+  auto annotations = ArrayAttr();
+  bool foundAnnotations = false;
+  for (auto &argAttr : attrs) {
+    if (!foundAnnotations && argAttr.first == "firrtl.annotations") {
+      annotations = argAttr.second.dyn_cast<ArrayAttr>();
+      foundAnnotations = true;
+      continue;
+    }
+
+    if (argAttr.first != "firrtl.name")
+      continue;
+
+    return std::make_pair(argAttr.second.dyn_cast<StringAttr>(), annotations);
+  }
+
+  return std::make_pair(StringAttr(), annotations);
+}
+
 namespace {
 
 // We implement the OpAsmDialectInterface so that FIRRTL dialect operations
