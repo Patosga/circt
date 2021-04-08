@@ -120,6 +120,7 @@ public:
   void visitExpr(SubindexOp op);
   void visitExpr(SubaccessOp op);
   void visitStmt(ConnectOp op);
+  void visitStmt(PartialConnectOp op);
 
 private:
   // Lowering module block arguments.
@@ -776,6 +777,75 @@ void TypeLoweringVisitor::visitStmt(ConnectOp op) {
     }
 
     builder->create<ConnectOp>(newDest, newSrc);
+  }
+
+  // Remember to remove the original op.
+  opsToRemove.push_back(op);
+}
+
+void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
+  Value dest = op.dest();
+  Value src = op.src();
+
+  // Attempt to get the bundle types, potentially unwrapping an outer flip
+  // type that wraps the whole bundle.
+  FIRRTLType destType = getCanonicalAggregateType(dest.getType());
+  FIRRTLType srcType = getCanonicalAggregateType(src.getType());
+
+  // If we aren't connecting two bundles, there is nothing to do.
+  if (!destType || !srcType)
+    return;
+
+  SmallVector<FlatBundleFieldEntry, 8> destTypes, srcTypes;
+  flattenType(destType, "", false, destTypes);
+  flattenType(srcType, "", false, srcTypes);
+
+  SmallVector<Value, 8> destLowerings, srcLowerings;
+  getAllBundleLowerings(dest, destLowerings);
+  getAllBundleLowerings(src, srcLowerings);
+
+  SmallVector<std::pair<Value, StringRef>> destValues, srcValues;
+  for (size_t i = 0, e = destLowerings.size(); i != e; ++i)
+    destValues.push_back({destLowerings[i], destTypes[i].suffix});
+  for (size_t i = 0, e = srcLowerings.size(); i != e; ++i)
+    srcValues.push_back({srcLowerings[i], srcTypes[i].suffix});
+
+  /// Three way comparison of Value -> Name tuples by their Names.
+  auto cmpValues = [](const std::pair<Value, StringRef> *a,
+                      const std::pair<Value, StringRef> *b) -> int {
+    return a->second.compare(b->second);
+  };
+  llvm::array_pod_sort(destValues.begin(), destValues.end(), cmpValues);
+  llvm::array_pod_sort(srcValues.begin(), srcValues.end(), cmpValues);
+
+  // Determine if the LHS expression is the duplex value.
+  auto isDestDuplex = isDuplexValue(destValues.front().first);
+
+  // Iterate through sorted destination and source leaves connecting
+  // those with the same name.
+  for (auto a = destValues.begin(), b = srcValues.begin(),
+            aa = destValues.end(), bb = srcValues.end();
+       a != aa && b != bb;) {
+    switch (a->second.compare(b->second)) {
+    case -1:
+      ++a;
+      continue;
+    case 1:
+      ++b;
+      continue;
+    case 0:
+      break;
+    }
+
+    auto aValue = (a++)->first;
+    auto bValue = (b++)->first;
+
+    // Same connection logic as ConnectOp.  See above.
+    if (isDestDuplex ? bValue.getType().isa<FlipType>()
+                     : !aValue.getType().isa<FlipType>())
+      std::swap(bValue, aValue);
+
+    builder->create<PartialConnectOp>(aValue, bValue);
   }
 
   // Remember to remove the original op.
