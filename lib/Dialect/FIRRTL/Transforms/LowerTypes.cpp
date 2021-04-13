@@ -151,6 +151,9 @@ private:
   // State to track the new attributes for the module.
   SmallVector<NamedAttribute, 8> newModuleAttrs;
   size_t originalNumModuleArgs;
+
+  void recursivePartialConnect(Value a, FIRRTLType aType, Value b,
+                               FIRRTLType bType, Twine suffix);
 };
 } // end anonymous namespace
 
@@ -783,6 +786,72 @@ void TypeLoweringVisitor::visitStmt(ConnectOp op) {
   opsToRemove.push_back(op);
 }
 
+void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
+                                                  Value b, FIRRTLType bType,
+                                                  Twine suffix) {
+
+  llvm::errs() << "suffix: \"" << suffix << "\"\n";
+
+  TypeSwitch<FIRRTLType>(aType)
+      .Case<BundleType>([&](auto aType) {
+        llvm::errs() << "bundle\n";
+
+        auto bBundle = bType.dyn_cast_or_null<BundleType>();
+        if (!bBundle)
+          return;
+
+        for (auto aElt : aType.getElements()) {
+          auto aField = aElt.name.getValue();
+          auto bElt = bBundle.getElement(aField);
+          if (bElt) {
+            if (suffix.isTriviallyEmpty())
+              recursivePartialConnect(a, aElt.type, b, bElt.getValue().type,
+                                      aField);
+            else
+              recursivePartialConnect(a, aElt.type, b, bElt.getValue().type,
+                                      suffix + "_" + aField);
+          }
+        }
+      })
+      .Case<VectorType>([&](auto) {
+        llvm::errs() << "vector\n";
+
+        if (!bType.isa<VectorType>())
+          return;
+
+        return;
+      })
+      .Case<FlipType>([&](auto aType) {
+        llvm::errs() << "flip\n";
+        recursivePartialConnect(a, aType.getElementType(), b, FlipType::get(bType), suffix);
+      })
+      .Default([&](auto) {
+        llvm::errs() << "default\n";
+
+        if (bType.isGround()) {
+          if (aType.isa<FlipType>())
+            builder->create<PartialConnectOp>(getBundleLowering(b, suffix.str()),
+                                              getBundleLowering(a, suffix.str()));
+          else
+            builder->create<PartialConnectOp>(getBundleLowering(a, suffix.str()),
+                                              getBundleLowering(b, suffix.str()));
+        }
+      });
+
+  return;
+}
+
+/// Return true if a Value is a wire or register.  This recursively walks up the operation
+static bool isWireOrReg(Value a) {
+  if (auto *op = a.getDefiningOp())
+    return TypeSwitch<Operation *, bool>(op)
+        .Case<WireOp, RegOp>([](auto a) { return true; })
+        .Case<SubindexOp, SubaccessOp, SubfieldOp>(
+            [](auto a) { return isWireOrReg(a.input()); })
+        .Default([](auto) { return false; });
+  return false;
+}
+
 void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
   Value dest = op.dest();
   Value src = op.src();
@@ -803,6 +872,17 @@ void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
   SmallVector<Value, 8> destLowerings, srcLowerings;
   getAllBundleLowerings(dest, destLowerings);
   getAllBundleLowerings(src, srcLowerings);
+
+  // If the destination type is a wire or register, then its type
+  // needs to be flipped for the purposes of correctly connecting
+  // things.
+  auto destTypex = destType;
+  if (isWireOrReg(dest))
+    destTypex = FlipType::get(destType);
+
+  recursivePartialConnect(dest, destTypex, src, srcType, "");
+  opsToRemove.push_back(op);
+  return;
 
   SmallVector<std::pair<Value, StringRef>> destValues, srcValues;
   for (size_t i = 0, e = destLowerings.size(); i != e; ++i)
@@ -918,6 +998,10 @@ Value TypeLoweringVisitor::addArg(FModuleOp module, Type type,
 // names to flat values.
 void TypeLoweringVisitor::setBundleLowering(Value oldValue, StringRef flatField,
                                             Value newValue) {
+  // llvm::errs() << "setBundleLowering:\n"
+  //              << "  oldValue: " << oldValue << "\n"
+  //              << "  flatField: " << flatField << "\n"
+  //              << "  newValue: " << newValue << "\n";
   auto flatFieldId = builder->getIdentifier(flatField);
   auto &entry = loweredBundleValues[ValueIdentifier(oldValue, flatFieldId)];
   if (entry == newValue)
@@ -932,6 +1016,10 @@ Value TypeLoweringVisitor::getBundleLowering(Value oldValue,
                                              StringRef flatField) {
   auto flatFieldId = builder->getIdentifier(flatField);
   auto &entry = loweredBundleValues[ValueIdentifier(oldValue, flatFieldId)];
+  if (!entry)
+    llvm::errs() << "getBundleLowering failure:\n"
+                 << "  oldValue: " << oldValue << "\n"
+                 << "  flatField: " << flatField << "\n";
   assert(entry && "bundle lowering was not set");
   return entry;
 }

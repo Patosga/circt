@@ -2481,7 +2481,7 @@ ParseResult FIRStmtParser::parseWire() {
   ArrayAttr annotations = builder.getArrayAttr({});
   getAnnotations(getModuleTarget() + ">" + id.getValue(), annotations);
 
-  auto result = builder.create<WireOp>(info.getLoc(), type,
+  auto result = builder.create<WireOp>(info.getLoc(), FlipType::get(type),
                                        filterUselessName(id), annotations);
   return addSymbolEntry(id.getValue(), result, info.getFIRLoc());
 }

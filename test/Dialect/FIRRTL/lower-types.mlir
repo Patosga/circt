@@ -675,8 +675,6 @@ firrtl.circuit "Foo" {
   firrtl.module @Foo() {
     %a = firrtl.wire  : !firrtl.bundle<b: uint<2>, a: uint<1>>
     %b = firrtl.wire  : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
-    %0 = firrtl.invalidvalue : !firrtl.bundle<b: uint<2>, a: uint<1>>
-    %1 = firrtl.invalidvalue : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
     firrtl.partialconnect %b, %a : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>, !firrtl.bundle<b: uint<2>, a: uint<1>>
   }
   // CHECK: firrtl.module
@@ -711,6 +709,20 @@ firrtl.circuit "Foo" {
   }
   // CHECK: firrtl.module
   // CHECK: firrtl.partialconnect %b_y_a, %a_x_a
+  // CHECK-NOT: firrtl.partialconnect
+}
+
+// -----
+
+// Test that flattened types don't alias.  Here, "a.a_a" shouldn't
+// incorrectly alias to "b.a_a".
+firrtl.circuit "Foo" {
+  firrtl.module @Foo(%a: !firrtl.bundle<a: bundle<a: uint<1>>>, %b: !firrtl.flip<bundle<a_a: uint<1>>>) {
+    %0 = firrtl.invalidvalue : !firrtl.bundle<a_a: uint<1>>
+    firrtl.connect %b, %0 : !firrtl.flip<bundle<a_a: uint<1>>>, !firrtl.bundle<a_a: uint<1>>
+    firrtl.partialconnect %b, %a : !firrtl.flip<bundle<a_a: uint<1>>>, !firrtl.bundle<a: bundle<a: uint<1>>>
+  }
+  // CHECK: firrtl.module
   // CHECK-NOT: firrtl.partialconnect
 }
 
