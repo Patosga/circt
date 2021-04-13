@@ -153,7 +153,7 @@ private:
   size_t originalNumModuleArgs;
 
   void recursivePartialConnect(Value a, FIRRTLType aType, Value b,
-                               FIRRTLType bType, Twine suffix);
+                               FIRRTLType bType, Twine suffix, bool aFlip);
 };
 } // end anonymous namespace
 
@@ -788,7 +788,8 @@ void TypeLoweringVisitor::visitStmt(ConnectOp op) {
 
 void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
                                                   Value b, FIRRTLType bType,
-                                                  Twine suffix) {
+                                                  Twine suffix,
+                                                  bool aFlip = false) {
 
   llvm::errs() << "suffix: \"" << suffix << "\"\n";
 
@@ -823,25 +824,23 @@ void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
       })
       .Case<FlipType>([&](auto aType) {
         llvm::errs() << "flip\n";
-        recursivePartialConnect(a, aType.getElementType(), b, FlipType::get(bType), suffix);
+        recursivePartialConnect(a, FlipType::get(aType), b, bType, suffix,
+                                !aFlip);
       })
       .Default([&](auto) {
         llvm::errs() << "default\n";
 
-        if (bType.isGround()) {
-          if (aType.isa<FlipType>())
-            builder->create<PartialConnectOp>(getBundleLowering(b, suffix.str()),
-                                              getBundleLowering(a, suffix.str()));
-          else
-            builder->create<PartialConnectOp>(getBundleLowering(a, suffix.str()),
-                                              getBundleLowering(b, suffix.str()));
-        }
+        if (!aFlip)
+          builder->create<PartialConnectOp>(getBundleLowering(b, suffix.str()),
+                                            getBundleLowering(a, suffix.str()));
+        else
+          builder->create<PartialConnectOp>(getBundleLowering(a, suffix.str()),
+                                            getBundleLowering(b, suffix.str()));
       });
-
-  return;
 }
 
-/// Return true if a Value is a wire or register.  This recursively walks up the operation
+/// Return true if a Value is a wire or register.  This recursively walks up the
+/// operation
 static bool isWireOrReg(Value a) {
   if (auto *op = a.getDefiningOp())
     return TypeSwitch<Operation *, bool>(op)
@@ -880,7 +879,7 @@ void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
   if (isWireOrReg(dest))
     destTypex = FlipType::get(destType);
 
-  recursivePartialConnect(dest, destTypex, src, srcType, "");
+  recursivePartialConnect(dest, destTypex, src, srcType.getPassiveType(), "");
   opsToRemove.push_back(op);
   return;
 

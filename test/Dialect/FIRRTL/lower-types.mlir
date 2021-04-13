@@ -671,13 +671,13 @@ firrtl.circuit "AnnotationsRegOp" {
 //   1. Ordering does not matter, just names.
 //   2. LHS or RHS widths do not matter.
 //   3. Fields that don't match are ignored.
-firrtl.circuit "Foo" {
-  firrtl.module @Foo() {
+firrtl.circuit "PartialConnectWire" {
+  firrtl.module @PartialConnectWire() {
     %a = firrtl.wire  : !firrtl.bundle<b: uint<2>, a: uint<1>>
     %b = firrtl.wire  : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
     firrtl.partialconnect %b, %a : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>, !firrtl.bundle<b: uint<2>, a: uint<1>>
   }
-  // CHECK: firrtl.module
+  // CHECK-LABEL: firrtl.module @PartialConnectWire
   // CHECK: firrtl.partialconnect %b_a, %a_a
   // CHECK-NEXT: firrtl.partialconnect %b_b, %a_b
   // CHECK-NOT: firrtl.partialconnect
@@ -688,13 +688,13 @@ firrtl.circuit "Foo" {
 // Test that partial connects of ports work.  This is the same as the
 // wire test above, but exercises alternative code paths in LowerTypes
 // necessary to compute the new port names.
-firrtl.circuit "Foo" {
-  firrtl.module @Foo(%a: !firrtl.bundle<b: uint<2>, a: uint<1>>, %b: !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>) {
+firrtl.circuit "PartialConnectPort" {
+  firrtl.module @PartialConnectPort(%a: !firrtl.bundle<b: uint<2>, a: uint<1>>, %b: !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>) {
     %0 = firrtl.invalidvalue : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
     firrtl.connect %b, %0 : !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>, !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
     firrtl.partialconnect %b, %a : !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>, !firrtl.bundle<b: uint<2>, a: uint<1>>
   }
-  // CHECK: firrtl.module
+  // CHECK-LABEL: firrtl.module @PartialConnectPort
   // CHECK: firrtl.partialconnect %b_a, %a_a
   // CHECK-NEXT: firrtl.partialconnect %b_b, %a_b
   // CHECK-NOT: firrtl.partialconnect
@@ -703,11 +703,11 @@ firrtl.circuit "Foo" {
 // -----
 
 // Test that names involving underscores work.
-firrtl.circuit "Foo" {
-  firrtl.module @Foo(%a_x: !firrtl.bundle<a: uint<1>, b: uint<1>>, %b_y: !firrtl.flip<bundle<a: uint<1>>>) {
+firrtl.circuit "PartialConnectUnderscore" {
+  firrtl.module @PartialConnectUnderscore(%a_x: !firrtl.bundle<a: uint<1>, b: uint<1>>, %b_y: !firrtl.flip<bundle<a: uint<1>>>) {
     firrtl.partialconnect %b_y, %a_x : !firrtl.flip<bundle<a: uint<1>>>, !firrtl.bundle<a: uint<1>, b: uint<1>>
   }
-  // CHECK: firrtl.module
+  // CHECK-LABEL: firrtl.module @PartialConnectUnderscore
   // CHECK: firrtl.partialconnect %b_y_a, %a_x_a
   // CHECK-NOT: firrtl.partialconnect
 }
@@ -716,12 +716,13 @@ firrtl.circuit "Foo" {
 
 // Test that flattened types don't alias.  Here, "a.a_a" shouldn't
 // incorrectly alias to "b.a_a".
-firrtl.circuit "Foo" {
-  firrtl.module @Foo(%a: !firrtl.bundle<a: bundle<a: uint<1>>>, %b: !firrtl.flip<bundle<a_a: uint<1>>>) {
+firrtl.circuit "PartialConnectNameAliasing" {
+  firrtl.module @PartialConnectNameAliasing(%a: !firrtl.bundle<a: bundle<a: uint<1>>>, %b: !firrtl.flip<bundle<a_a: uint<1>>>) {
     %0 = firrtl.invalidvalue : !firrtl.bundle<a_a: uint<1>>
     firrtl.connect %b, %0 : !firrtl.flip<bundle<a_a: uint<1>>>, !firrtl.bundle<a_a: uint<1>>
     firrtl.partialconnect %b, %a : !firrtl.flip<bundle<a_a: uint<1>>>, !firrtl.bundle<a: bundle<a: uint<1>>>
   }
+  // CHECK-LABLE: firrtl.module @PartialConnectNameAliasing
   // CHECK: firrtl.module
   // CHECK-NOT: firrtl.partialconnect
 }
@@ -729,10 +730,10 @@ firrtl.circuit "Foo" {
 // -----
 
 // Test that a connection with no common names does nothing.
-firrtl.circuit "NoCommon" {
-  firrtl.module @NoCommon(%a: !firrtl.bundle<a: uint<1>>, %b: !firrtl.flip<bundle<b: uint<1>>>) {
+firrtl.circuit "PartialConnectNoCommon" {
+  firrtl.module @PartialConnectNoCommon(%a: !firrtl.bundle<a: uint<1>>, %b: !firrtl.flip<bundle<b: uint<1>>>) {
     firrtl.partialconnect %b, %a : !firrtl.flip<bundle<b: uint<1>>>, !firrtl.bundle<a: uint<1>>
   }
-  // CHECK: firrtl.module
+  // CHECK-LABEL: firrtl.module @PartialConnectNoCommon
   // CHECK-NOT: firrtl.partialconnect
 }
