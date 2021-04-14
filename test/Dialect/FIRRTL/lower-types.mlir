@@ -685,15 +685,28 @@ firrtl.circuit "PartialConnectWire" {
 
 // -----
 
+// Test that partial connects with a LHS leaf flip results in a
+// reverse connection.
 firrtl.circuit "PartialReverseConnectWire" {
-  firrtl.module @PartialReverseConnectWire() {
-    %c = firrtl.wire  : !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>
-    %d = firrtl.wire  : !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>
-    firrtl.partialconnect %d, %c : !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>, !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>
-  }
   // CHECK-LABEL: firrtl.module @PartialReverseConnectWire
-  // CHECK: firrtl.partialconnect %c_a_a_a, %d_a_a_a
-  // CHECK-NOT: firrtl.partialconnect
+  firrtl.module @PartialReverseConnectWire() {
+    %a = firrtl.wire  : !firrtl.flip<bundle<a: uint<1>>>
+    %b = firrtl.wire  : !firrtl.flip<bundle<a: uint<1>>>
+    firrtl.partialconnect %b, %a : !firrtl.flip<bundle<a: uint<1>>>, !firrtl.flip<bundle<a: uint<1>>>
+    // This connect should be reversed.
+    // CHECK: firrtl.partialconnect %a_a, %b_a
+    firrtl.partialconnect %a, %b : !firrtl.flip<bundle<a: uint<1>>>, !firrtl.flip<bundle<a: uint<1>>>
+    // This connect should be reversed.
+    // CHECK: firrtl.partialconnect %b_a, %a_a
+    %0 = firrtl.subfield %a("a") : (!firrtl.flip<bundle<a: uint<1>>>) -> !firrtl.flip<uint<1>>
+    %1 = firrtl.subfield %b("a") : (!firrtl.flip<bundle<a: uint<1>>>) -> !firrtl.flip<uint<1>>
+    firrtl.partialconnect %0, %1 : !firrtl.flip<uint<1>>, !firrtl.flip<uint<1>>
+    // This connect should not be reversed.
+    // CHECK: firrtl.partialconnect %a_a, %b_a
+    firrtl.partialconnect %1, %0 : !firrtl.flip<uint<1>>, !firrtl.flip<uint<1>>
+    // This connect should not be reversed.
+    // CHECK: firrtl.partialconnect %b_a, %a_a
+  }
 }
 
 // -----
