@@ -666,21 +666,36 @@ firrtl.circuit "AnnotationsRegOp" {
 
 // -----
 
-// Test that partial connects of internal module components (not
-// ports) are lowered correctly.  This is testing several things:
-//   1. Ordering does not matter, just names.
-//   2. LHS or RHS widths do not matter.
-//   3. Fields that don't match are ignored.
-firrtl.circuit "PartialConnectWire" {
-  firrtl.module @PartialConnectWire() {
-    %a = firrtl.wire  : !firrtl.bundle<b: uint<2>, a: uint<1>>
-    %b = firrtl.wire  : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
-    firrtl.partialconnect %b, %a : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>, !firrtl.bundle<b: uint<2>, a: uint<1>>
+// Smoke test of partial connect behavior on bundles.
+//   1. The ordering of the LHS is preserved.
+//   2. Only fields with the same name are connected.
+//   3. Larger RHS doesn't matter.
+firrtl.circuit "PartialConnectBundle" {
+  // CHECK-LABEL: firrtl.module @PartialConnectBundle
+  firrtl.module @PartialConnectBundle(%a: !firrtl.bundle<a: uint<2>, b: uint<2>, c: uint<2>>, %b: !firrtl.flip<bundle<d: uint<1>, b: uint<1>, a: uint<1>>>) {
+    firrtl.partialconnect %b, %a : !firrtl.flip<bundle<d: uint<1>, b: uint<1>, a: uint<1>>>, !firrtl.bundle<a: uint<2>, b: uint<2>, c: uint<2>>
+    // CHECK:      firrtl.partialconnect %b_b, %a_b
+    // CHECK-NEXT: firrtl.partialconnect %b_a, %a_a
+    // CHECK-NOT:  firrtl.partialconnect
   }
-  // CHECK-LABEL: firrtl.module @PartialConnectWire
-  // CHECK: firrtl.partialconnect %b_a, %a_a
-  // CHECK-NEXT: firrtl.partialconnect %b_b, %a_b
-  // CHECK-NOT: firrtl.partialconnect
+}
+
+// -----
+
+// Smoke test of partial connect behavior for vectors.
+//   1. Long LHS/Short RHS connects all short elements, no more.
+//   2. Short LHS/Long RHS connects all short elements, no more.
+//   3. Larger RHS doesn't matter.
+firrtl.circuit "PartialConnectVector" {
+  // CHECK-LABEL: firrtl.module @PartialConnectVector
+  firrtl.module @PartialConnectVector(%aShort: !firrtl.vector<uint<2>, 1>, %aLong: !firrtl.vector<uint<2>, 2>, %bShort: !firrtl.flip<vector<uint<1>, 1>>, %bLong: !firrtl.flip<vector<uint<1>, 2>>) {
+    firrtl.partialconnect %bShort, %aLong: !firrtl.flip<vector<uint<1>, 1>>, !firrtl.vector<uint<2>, 2>
+    // CHECK:     firrtl.partialconnect %bShort_0, %aLong_0
+    // CHECK-NOT: firrtl.partialconnect %bShort
+    firrtl.partialconnect %bLong, %aShort: !firrtl.flip<vector<uint<1>, 2>>, !firrtl.vector<uint<2>, 1>
+    // CHECK:     firrtl.partialconnect %bLong_0, %aShort_0
+    // CHECK-NOT: firrtl.partialconnect %bLong
+  }
 }
 
 // -----
