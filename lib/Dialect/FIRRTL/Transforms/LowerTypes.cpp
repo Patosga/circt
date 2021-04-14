@@ -788,8 +788,7 @@ void TypeLoweringVisitor::visitStmt(ConnectOp op) {
 
 void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
                                                   Value b, FIRRTLType bType,
-                                                  Twine suffix,
-                                                  bool aFlip = false) {
+                                                  Twine suffix, bool aFlip) {
 
   llvm::errs() << "  recursivePartialConnect:\n"
                << "    suffix: \"" << suffix << "\"\n"
@@ -816,13 +815,27 @@ void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
           }
         }
       })
-      .Case<VectorType>([&](auto) {
+      .Case<FVectorType>([&](auto aType) {
         llvm::errs() << "    vector\n";
 
-        if (!bType.isa<VectorType>())
+        auto bVector = bType.dyn_cast_or_null<FVectorType>();
+        if (!bVector)
           return;
 
-        return;
+        for (size_t i = 0, e = std::min<unsigned>(aType.getNumElements(),
+                                                  bVector.getNumElements());
+             i != e; ++i) {
+          if (suffix.isTriviallyEmpty())
+            recursivePartialConnect(
+                a, aType.getElementType().template dyn_cast<FIRRTLType>(), b,
+                bVector.getElementType().dyn_cast<FIRRTLType>(), Twine(i),
+                aFlip);
+          else
+            recursivePartialConnect(
+                a, aType.getElementType().template dyn_cast<FIRRTLType>(), b,
+                bVector.getElementType().dyn_cast<FIRRTLType>(),
+                suffix + "_" + Twine(i), aFlip);
+        }
       })
       .Case<FlipType>([&](auto aType) {
         llvm::errs() << "    flip\n";
@@ -838,18 +851,6 @@ void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
         builder->create<PartialConnectOp>(getBundleLowering(a, suffix.str()),
                                           getBundleLowering(b, suffix.str()));
       });
-}
-
-/// Return true if a Value is a wire or register.  This recursively walks up the
-/// operation
-static bool isWireOrReg(Value a) {
-  if (auto *op = a.getDefiningOp())
-    return TypeSwitch<Operation *, bool>(op)
-        .Case<WireOp, RegOp>([](auto a) { return true; })
-        .Case<SubindexOp, SubaccessOp, SubfieldOp>(
-            [](auto a) { return isWireOrReg(a.input()); })
-        .Default([](auto) { return false; });
-  return false;
 }
 
 void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
@@ -869,67 +870,12 @@ void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
   if (!destType || !srcType)
     return;
 
-  SmallVector<FlatBundleFieldEntry, 8> destTypes, srcTypes;
-  flattenType(destType, "", false, destTypes);
-  flattenType(srcType, "", false, srcTypes);
-
-  SmallVector<Value, 8> destLowerings, srcLowerings;
-  getAllBundleLowerings(dest, destLowerings);
-  getAllBundleLowerings(src, srcLowerings);
-
-  // If the destination type is a wire or register, then its type
-  // needs to be flipped for the purposes of correctly connecting
-  // things.
+  // If the destination type is a wire or register (as determined by
+  // the isDuplexValue utility), then start with the "aFlip" parameter
+  // true.  This needs to happen because wires and registers have the
+  // opposite flippedness of inputs and outputs.
   recursivePartialConnect(dest, dest.getType().cast<FIRRTLType>(), src,
-                          srcType.getPassiveType(), "", isWireOrReg(dest));
-  opsToRemove.push_back(op);
-  return;
-
-  SmallVector<std::pair<Value, StringRef>> destValues, srcValues;
-  for (size_t i = 0, e = destLowerings.size(); i != e; ++i)
-    destValues.push_back({destLowerings[i], destTypes[i].suffix});
-  for (size_t i = 0, e = srcLowerings.size(); i != e; ++i)
-    srcValues.push_back({srcLowerings[i], srcTypes[i].suffix});
-
-  /// Three way comparison of Value -> Name tuples by their Names.
-  auto cmpValues = [](const std::pair<Value, StringRef> *a,
-                      const std::pair<Value, StringRef> *b) -> int {
-    return a->second.compare(b->second);
-  };
-  llvm::array_pod_sort(destValues.begin(), destValues.end(), cmpValues);
-  llvm::array_pod_sort(srcValues.begin(), srcValues.end(), cmpValues);
-
-  // Determine if the LHS expression is the duplex value.
-  auto isDestDuplex = isDuplexValue(destValues.front().first);
-
-  // Iterate through sorted destination and source leaves connecting
-  // those with the same name.
-  for (auto a = destValues.begin(), b = srcValues.begin(),
-            aa = destValues.end(), bb = srcValues.end();
-       a != aa && b != bb;) {
-    switch (a->second.compare(b->second)) {
-    case -1:
-      ++a;
-      continue;
-    case 1:
-      ++b;
-      continue;
-    case 0:
-      break;
-    }
-
-    auto aValue = (a++)->first;
-    auto bValue = (b++)->first;
-
-    // Same connection logic as ConnectOp.  See above.
-    if (isDestDuplex ? bValue.getType().isa<FlipType>()
-                     : !aValue.getType().isa<FlipType>())
-      std::swap(bValue, aValue);
-
-    builder->create<PartialConnectOp>(aValue, bValue);
-  }
-
-  // Remember to remove the original op.
+                          srcType.getPassiveType(), "", isDuplexValue(dest));
   opsToRemove.push_back(op);
 }
 
@@ -1015,6 +961,9 @@ void TypeLoweringVisitor::setBundleLowering(Value oldValue, StringRef flatField,
 // return the flat value if it exists.
 Value TypeLoweringVisitor::getBundleLowering(Value oldValue,
                                              StringRef flatField) {
+  // llvm::errs() << "getBundleLowering trying:\n"
+  //              << "  oldValue: " << oldValue << "\n"
+  //              << "  flatField: " << flatField << "\n";
   auto flatFieldId = builder->getIdentifier(flatField);
   auto &entry = loweredBundleValues[ValueIdentifier(oldValue, flatFieldId)];
   if (!entry)

@@ -685,8 +685,6 @@ firrtl.circuit "PartialConnectWire" {
 
 // -----
 
-// Test that partial connects with a LHS leaf flip results in a
-// reverse connection.
 firrtl.circuit "PartialReverseConnectWire" {
   // CHECK-LABEL: firrtl.module @PartialReverseConnectWire
   firrtl.module @PartialReverseConnectWire() {
@@ -711,31 +709,28 @@ firrtl.circuit "PartialReverseConnectWire" {
 
 // -----
 
-// Test that partial connects of ports work.  This is the same as the
-// wire test above, but exercises alternative code paths in LowerTypes
-// necessary to compute the new port names.
+// Test that partial connects of ports work.  This is essentially the
+// same test as the wire test above, just using ports.
 firrtl.circuit "PartialConnectPort" {
-  firrtl.module @PartialConnectPort(%a: !firrtl.bundle<b: uint<2>, a: uint<1>>, %b: !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>) {
-    %0 = firrtl.invalidvalue : !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
-    firrtl.connect %b, %0 : !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>, !firrtl.bundle<a: uint<2>, b: uint<1>, c: uint<1>>
-    firrtl.partialconnect %b, %a : !firrtl.flip<bundle<a: uint<2>, b: uint<1>, c: uint<1>>>, !firrtl.bundle<b: uint<2>, a: uint<1>>
-  }
   // CHECK-LABEL: firrtl.module @PartialConnectPort
-  // CHECK: firrtl.partialconnect %b_a, %a_a
-  // CHECK-NEXT: firrtl.partialconnect %b_b, %a_b
-  // CHECK-NOT: firrtl.partialconnect
-}
-
-// -----
-
-// Test that names involving underscores work.
-firrtl.circuit "PartialConnectUnderscore" {
-  firrtl.module @PartialConnectUnderscore(%a_x: !firrtl.bundle<a: uint<1>, b: uint<1>>, %b_y: !firrtl.flip<bundle<a: uint<1>>>) {
-    firrtl.partialconnect %b_y, %a_x : !firrtl.flip<bundle<a: uint<1>>>, !firrtl.bundle<a: uint<1>, b: uint<1>>
+  firrtl.module @PartialConnectPort(%a: !firrtl.bundle<a: uint<1>>, %b: !firrtl.flip<bundle<a: uint<1>>>, %aFlip: !firrtl.flip<bundle<a: uint<1>>>, %bFlip: !firrtl.bundle<a: uint<1>>) {
+    firrtl.partialconnect %b, %a : !firrtl.flip<bundle<a: uint<1>>>, !firrtl.bundle<a: uint<1>>
+    // This is a straight partial connect.
+    // CHECK: firrtl.partialconnect %b_a, %a_a
+    %0 = firrtl.subfield %b("a") : (!firrtl.flip<bundle<a: uint<1>>>) -> !firrtl.flip<uint<1>>
+    %1 = firrtl.subfield %a("a") : (!firrtl.bundle<a: uint<1>>) -> !firrtl.uint<1>
+    firrtl.partialconnect %0, %1 : !firrtl.flip<uint<1>>, !firrtl.uint<1>
+    // This is the same as the above, just pre-flattened.
+    // CHECK: firrtl.partialconnect %b_a, %a_a
+    firrtl.partialconnect %bFlip, %aFlip : !firrtl.bundle<a: uint<1>>, !firrtl.flip<bundle<a: uint<1>>>
+    // With flipped port types, the connect should be reversed.
+    // CHECK: firrtl.partialconnect %aFlip_a, %bFlip_a
+    %2 = firrtl.subfield %aFlip("a") : (!firrtl.flip<bundle<a: uint<1>>>) -> !firrtl.flip<uint<1>>
+    %3 = firrtl.subfield %bFlip("a") : (!firrtl.bundle<a: uint<1>>) -> !firrtl.uint<1>
+    firrtl.partialconnect %2, %3 : !firrtl.flip<uint<1>>, !firrtl.uint<1>
+    // Flattening these connects requires flipping the connect order.
+    // CHECK: firrtl.partialconnect %aFlip_a, %bFlip_a
   }
-  // CHECK-LABEL: firrtl.module @PartialConnectUnderscore
-  // CHECK: firrtl.partialconnect %b_y_a, %a_x_a
-  // CHECK-NOT: firrtl.partialconnect
 }
 
 // -----
