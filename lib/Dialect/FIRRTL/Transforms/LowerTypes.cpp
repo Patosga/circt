@@ -791,11 +791,13 @@ void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
                                                   Twine suffix,
                                                   bool aFlip = false) {
 
-  llvm::errs() << "suffix: \"" << suffix << "\"\n";
+  llvm::errs() << "  recursivePartialConnect:\n"
+               << "    suffix: \"" << suffix << "\"\n"
+               << "    aFlip: " << aFlip << "\n";
 
   TypeSwitch<FIRRTLType>(aType)
       .Case<BundleType>([&](auto aType) {
-        llvm::errs() << "bundle\n";
+        llvm::errs() << "    bundle\n";
 
         auto bBundle = bType.dyn_cast_or_null<BundleType>();
         if (!bBundle)
@@ -807,15 +809,15 @@ void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
           if (bElt) {
             if (suffix.isTriviallyEmpty())
               recursivePartialConnect(a, aElt.type, b, bElt.getValue().type,
-                                      aField);
+                                      aField, aFlip);
             else
               recursivePartialConnect(a, aElt.type, b, bElt.getValue().type,
-                                      suffix + "_" + aField);
+                                      suffix + "_" + aField, aFlip);
           }
         }
       })
       .Case<VectorType>([&](auto) {
-        llvm::errs() << "vector\n";
+        llvm::errs() << "    vector\n";
 
         if (!bType.isa<VectorType>())
           return;
@@ -823,19 +825,18 @@ void TypeLoweringVisitor::recursivePartialConnect(Value a, FIRRTLType aType,
         return;
       })
       .Case<FlipType>([&](auto aType) {
-        llvm::errs() << "flip\n";
+        llvm::errs() << "    flip\n";
         recursivePartialConnect(a, FlipType::get(aType), b, bType, suffix,
                                 !aFlip);
       })
       .Default([&](auto) {
-        llvm::errs() << "default\n";
+        llvm::errs() << "    default\n";
 
         if (!aFlip)
-          builder->create<PartialConnectOp>(getBundleLowering(b, suffix.str()),
-                                            getBundleLowering(a, suffix.str()));
-        else
-          builder->create<PartialConnectOp>(getBundleLowering(a, suffix.str()),
-                                            getBundleLowering(b, suffix.str()));
+          std::swap(a, b);
+
+        builder->create<PartialConnectOp>(getBundleLowering(a, suffix.str()),
+                                          getBundleLowering(b, suffix.str()));
       });
 }
 
@@ -852,6 +853,10 @@ static bool isWireOrReg(Value a) {
 }
 
 void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
+
+  llvm::errs() << "lower PartialConnectOp:\n"
+               << "  op: " << op << "\n";
+
   Value dest = op.dest();
   Value src = op.src();
 
@@ -875,11 +880,8 @@ void TypeLoweringVisitor::visitStmt(PartialConnectOp op) {
   // If the destination type is a wire or register, then its type
   // needs to be flipped for the purposes of correctly connecting
   // things.
-  auto destTypex = destType;
-  if (isWireOrReg(dest))
-    destTypex = FlipType::get(destType);
-
-  recursivePartialConnect(dest, destTypex, src, srcType.getPassiveType(), "");
+  recursivePartialConnect(dest, dest.getType().cast<FIRRTLType>(), src,
+                          srcType.getPassiveType(), "", isWireOrReg(dest));
   opsToRemove.push_back(op);
   return;
 

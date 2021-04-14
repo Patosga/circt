@@ -685,6 +685,19 @@ firrtl.circuit "PartialConnectWire" {
 
 // -----
 
+firrtl.circuit "PartialReverseConnectWire" {
+  firrtl.module @PartialReverseConnectWire() {
+    %c = firrtl.wire  : !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>
+    %d = firrtl.wire  : !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>
+    firrtl.partialconnect %d, %c : !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>, !firrtl.flip<bundle<a: bundle<a: bundle<a: uint<1>>>>>
+  }
+  // CHECK-LABEL: firrtl.module @PartialReverseConnectWire
+  // CHECK: firrtl.partialconnect %c_a_a_a, %d_a_a_a
+  // CHECK-NOT: firrtl.partialconnect
+}
+
+// -----
+
 // Test that partial connects of ports work.  This is the same as the
 // wire test above, but exercises alternative code paths in LowerTypes
 // necessary to compute the new port names.
