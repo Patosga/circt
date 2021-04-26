@@ -930,7 +930,7 @@ MemRefToMemoryAccessOp replaceMemoryOps(handshake::FuncOp f,
         } else {
           op.emitError("Load/store operation cannot be handled.");
         }
-
+        llvm::errs() << "Replacing -> " << op << " with " << newOp << "\n";
         MemRefOps[memref].push_back(newOp);
 
         opsToErase.push_back(&op);
@@ -1591,6 +1591,16 @@ struct HandshakeDataflowPass
   }
 };
 
+
+struct AffineToStdPass
+    : public AffineToStdBase<AffineToStdPass> {
+  void runOnOperation() override {
+    ModuleOp m = getOperation();
+    llvm::errs() << "Hello world from AffineToStd!"  << "\n";
+    llvm::errs() << m;
+  }
+};
+
 struct HandshakeCanonicalizePass
     : public HandshakeCanonicalizeBase<HandshakeCanonicalizePass> {
   void runOnOperation() override {
@@ -1676,6 +1686,11 @@ circt::createHandshakeAnalysisPass() {
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 circt::createHandshakeDataflowPass() {
   return std::make_unique<HandshakeDataflowPass>();
+}
+
+std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+circt::createAffineToStdPass() {
+  return std::make_unique<AffineToStdPass>();
 }
 
 std::unique_ptr<mlir::OperationPass<handshake::FuncOp>>

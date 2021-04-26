@@ -34,6 +34,9 @@ createHandshakeAnalysisPass();
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 createHandshakeDataflowPass();
 
+std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
+createAffineToStdPass();
+
 std::unique_ptr<mlir::OperationPass<handshake::FuncOp>>
 createHandshakeCanonicalizePass();
 

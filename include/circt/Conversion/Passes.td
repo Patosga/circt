@@ -99,6 +99,11 @@ def HandshakeDataflow : Pass<"create-dataflow", "mlir::ModuleOp"> {
   let dependentDialects = ["handshake::HandshakeOpsDialect"];
 }
 
+def AffineToStd : Pass<"convert-affine-to-std", "mlir::ModuleOp"> {
+  let summary = "Convert affine dialect into standard MLIR";
+  let constructor = "circt::createAffineToStdPass()";
+}
+
 def HandshakeCanonicalize : Pass<"canonicalize-dataflow", "handshake::FuncOp"> {
   let summary = "Canonicalize handshake IR";
   let constructor = "circt::createHandshakeCanonicalizePass()";

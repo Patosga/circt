@@ -1,4 +1,5 @@
-// RUN: circt-opt %s -create-dataflow -split-input-file | FileCheck %s
+// RUN: circt-opt %s -convert-affine-to-std -create-dataflow -split-input-file | FileCheck %s
+
 
 // -----
 
