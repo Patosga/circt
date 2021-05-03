@@ -1591,16 +1591,6 @@ struct HandshakeDataflowPass
   }
 };
 
-
-struct AffineToStdPass
-    : public AffineToStdBase<AffineToStdPass> {
-  void runOnOperation() override {
-    ModuleOp m = getOperation();
-    llvm::errs() << "Hello world from AffineToStd!"  << "\n";
-    llvm::errs() << m;
-  }
-};
-
 struct HandshakeCanonicalizePass
     : public HandshakeCanonicalizeBase<HandshakeCanonicalizePass> {
   void runOnOperation() override {

@@ -12,11 +12,15 @@
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
 #include "../PassDetail.h"
 #include "circt/Conversion/StandardToHandshake/AffineToStandard.h"
+#include "circt/Dialect/Handshake/HandshakeOps.h"
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/SCF.h"
 #include "mlir/IR/AffineExprVisitor.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 
@@ -335,10 +339,11 @@ struct FuncOpLowering : public OpConversionPattern<mlir::FuncOp> {
   matchAndRewrite(mlir::FuncOp funcOp, ArrayRef<Value> operands,
                   ConversionPatternRewriter &rewriter) const override {
 
+    llvm::errs() << "OI?\n";
     // Rewrite affine.for operations.
-    if (failed(rewriteAffineFor(funcOp, rewriter)))
+    /*if (failed(rewriteAffineFor(funcOp, rewriter)))
       return funcOp.emitOpError("failed to rewrite Affine loops");
-
+    */
     return success();
   }
 };
@@ -347,8 +352,16 @@ struct AffineToStdPass : public circt::AffineToStdBase<AffineToStdPass> {
   void runOnOperation() override {
     ModuleOp m = getOperation();
 
+    ConversionTarget target(getContext());
+    // target.addLegalDialect<circt::handshake::HandshakeOpsDialect,
+    //                       StandardOpsDialect>();
+    target.addLegalDialect<memref::MemRefDialect, scf::SCFDialect,
+                           StandardOpsDialect>();
     RewritePatternSet patterns(&getContext());
     patterns.insert<FuncOpLowering>(m.getContext());
+    llvm::errs() << "APPLY\n";
+    if (failed(applyPartialConversion(m, target, std::move(patterns))))
+      signalPassFailure();
 
     llvm::errs() << "Hello world from AffineToStd!"
                  << "\n";
