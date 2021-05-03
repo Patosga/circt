@@ -20,6 +20,7 @@
 #include "circt/Conversion/RTLToLLHD/RTLToLLHD.h"
 #include "circt/Conversion/StandardToHandshake/StandardToHandshake.h"
 #include "circt/Conversion/StandardToStaticLogic/StandardToStaticLogic.h"
+#include "circt/Conversion/StandardToHandshake/AffineToStandard.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
 

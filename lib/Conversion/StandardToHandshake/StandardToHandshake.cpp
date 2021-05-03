@@ -1462,8 +1462,8 @@ struct FuncOpLowering : public OpConversionPattern<mlir::FuncOp> {
                                 newFuncOp.end());
 
     // Rewrite affine.for operations.
-    if (failed(rewriteAffineFor(newFuncOp, rewriter)))
-      return newFuncOp.emitOpError("failed to rewrite Affine loops");
+    //if (failed(rewriteAffineFor(newFuncOp, rewriter)))
+    //  return newFuncOp.emitOpError("failed to rewrite Affine loops");
 
     // Perform dataflow conversion
     MemRefToMemoryAccessOp MemOps = replaceMemoryOps(newFuncOp, rewriter);
@@ -1686,11 +1686,6 @@ circt::createHandshakeAnalysisPass() {
 std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
 circt::createHandshakeDataflowPass() {
   return std::make_unique<HandshakeDataflowPass>();
-}
-
-std::unique_ptr<mlir::OperationPass<mlir::ModuleOp>>
-circt::createAffineToStdPass() {
-  return std::make_unique<AffineToStdPass>();
 }
 
 std::unique_ptr<mlir::OperationPass<handshake::FuncOp>>
