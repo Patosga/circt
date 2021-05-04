@@ -16,6 +16,7 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/SCF.h"
+#include "mlir/Dialect/StandardOps/IR/Ops.h"
 #include "mlir/IR/AffineExprVisitor.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Support/LogicalResult.h"
@@ -242,108 +243,107 @@ Optional<SmallVector<Value, 8>> mlir::expandAffineMap(OpBuilder &builder,
 /// getting dependence information, should be carried out before calling this
 /// function; otherwise, the affine for loops will be destructed and key
 /// information will be missing.
-LogicalResult rewriteAffineFor(FuncOp f, ConversionPatternRewriter &rewriter) {
-  // Get all affine.for operations in the function body.
-  SmallVector<mlir::AffineForOp, 8> forOps;
-  f.walk([&](mlir::AffineForOp op) { forOps.push_back(op); });
-
+LogicalResult rewriteAffineFor(mlir::AffineForOp &forOp,
+                               PatternRewriter &rewriter) {
   // TODO: how to deal with nested loops?
-  for (unsigned i = 0, e = forOps.size(); i < e; i++) {
-    auto forOp = forOps[i];
 
-    // Insert lower and upper bounds right at the position of the original
-    // affine.for operation.
-    rewriter.setInsertionPoint(forOp);
-    auto loc = forOp.getLoc();
-    auto lowerBound = expandAffineMap(rewriter, loc, forOp.getLowerBoundMap(),
-                                      forOp.getLowerBoundOperands());
-    auto upperBound = expandAffineMap(rewriter, loc, forOp.getUpperBoundMap(),
-                                      forOp.getUpperBoundOperands());
-    if (!lowerBound || !upperBound)
-      return failure();
-    auto step = rewriter.create<mlir::ConstantIndexOp>(loc, forOp.getStep());
+  // Insert lower and upper bounds right at the position of the original
+  // affine.for operation.
+  rewriter.setInsertionPoint(forOp);
+  auto loc = forOp.getLoc();
+  auto lowerBound = expandAffineMap(rewriter, loc, forOp.getLowerBoundMap(),
+                                    forOp.getLowerBoundOperands());
+  auto upperBound = expandAffineMap(rewriter, loc, forOp.getUpperBoundMap(),
+                                    forOp.getUpperBoundOperands());
+  if (!lowerBound || !upperBound)
+    return failure();
 
-    // Build blocks for a common for loop. initBlock and initPosition are the
-    // block that contains the current forOp, and the position of the forOp.
-    auto *initBlock = rewriter.getInsertionBlock();
-    auto initPosition = rewriter.getInsertionPoint();
+  // Build blocks for a common for loop. initBlock and initPosition are the
+  // block that contains the current forOp, and the position of the forOp.
+  auto *initBlock = rewriter.getInsertionBlock();
+  auto initPosition = rewriter.getInsertionPoint();
 
-    // Split the current block into several parts. `endBlock` contains the code
-    // starting from forOp. `conditionBlock` will have the condition branch.
-    // `firstBodyBlock` is the loop body, and `lastBodyBlock` is about the loop
-    // iterator stepping. Here we move the body region of the AffineForOp here
-    // and split it into `conditionBlock`, `firstBodyBlock`, and
-    // `lastBodyBlock`.
-    // TODO: is there a simpler API for doing so?
-    auto *endBlock = rewriter.splitBlock(initBlock, initPosition);
-    // Split and get the references to different parts (blocks) of the original
-    // loop body.
-    auto *conditionBlock = &forOp.region().front();
-    auto *firstBodyBlock =
-        rewriter.splitBlock(conditionBlock, conditionBlock->begin());
-    auto *lastBodyBlock =
-        rewriter.splitBlock(firstBodyBlock, firstBodyBlock->end());
-    rewriter.inlineRegionBefore(forOp.region(), endBlock);
+  rewriter.eraseOp(forOp);
+  llvm::errs() << initBlock << "\n";
+  return success();
+  auto step = rewriter.create<mlir::ConstantIndexOp>(loc, forOp.getStep());
+  // Split the current block into several parts. `endBlock` contains the code
+  // starting from forOp. `conditionBlock` will have the condition branch.
+  // `firstBodyBlock` is the loop body, and `lastBodyBlock` is about the loop
+  // iterator stepping. Here we move the body region of the AffineForOp here
+  // and split it into `conditionBlock`, `firstBodyBlock`, and
+  // `lastBodyBlock`.
+  // TODO: is there a simpler API for doing so?
+  auto *endBlock = rewriter.splitBlock(initBlock, initPosition);
 
-    // The loop IV is the first argument of the conditionBlock.
-    auto iv = conditionBlock->getArgument(0);
+  // Split and get the references to different parts (blocks) of the original
+  // loop body.
+  auto *conditionBlock = &forOp.region().front();
+  auto *firstBodyBlock =
+      rewriter.splitBlock(conditionBlock, conditionBlock->begin());
+  auto *lastBodyBlock =
+      rewriter.splitBlock(firstBodyBlock, firstBodyBlock->end());
+  rewriter.inlineRegionBefore(forOp.region(), endBlock);
 
-    // Get the loop terminator, which should be the last operation of the
-    // original loop body. And `firstBodyBlock` points to that loop body.
-    auto terminator = dyn_cast<mlir::AffineYieldOp>(firstBodyBlock->back());
-    if (!terminator)
-      return failure();
+  // The loop IV is the first argument of the conditionBlock.
+  auto iv = conditionBlock->getArgument(0);
 
-    // First, we fill the content of the lastBodyBlock with how the loop
-    // iterator steps.
-    rewriter.setInsertionPointToEnd(lastBodyBlock);
-    auto stepped = rewriter.create<mlir::AddIOp>(loc, iv, step).getResult();
+  // Get the loop terminator, which should be the last operation of the
+  // original loop body. And `firstBodyBlock` points to that loop body.
+  auto terminator = dyn_cast<mlir::AffineYieldOp>(firstBodyBlock->back());
+  if (!terminator)
+    return failure();
 
-    // Next, we get the loop carried values, which are terminator operands.
-    SmallVector<Value, 8> loopCarried;
-    loopCarried.push_back(stepped);
-    loopCarried.append(terminator.operand_begin(), terminator.operand_end());
-    rewriter.create<mlir::BranchOp>(loc, conditionBlock, loopCarried);
+  // First, we fill the content of the lastBodyBlock with how the loop
+  // iterator steps.
+  rewriter.setInsertionPointToEnd(lastBodyBlock);
+  auto stepped = rewriter.create<mlir::AddIOp>(loc, iv, step).getResult();
 
-    // Then we fill in the condition block.
-    rewriter.setInsertionPointToEnd(conditionBlock);
-    auto comparison = rewriter.create<mlir::CmpIOp>(loc, CmpIPredicate::slt, iv,
-                                                    upperBound.getValue()[0]);
+  // Next, we get the loop carried values, which are terminator operands.
+  SmallVector<Value, 8> loopCarried;
+  loopCarried.push_back(stepped);
+  loopCarried.append(terminator.operand_begin(), terminator.operand_end());
+  rewriter.create<mlir::BranchOp>(loc, conditionBlock, loopCarried);
 
-    rewriter.create<mlir::CondBranchOp>(loc, comparison, firstBodyBlock,
-                                        ArrayRef<Value>(), endBlock,
-                                        ArrayRef<Value>());
+  // Then we fill in the condition block.
+  rewriter.setInsertionPointToEnd(conditionBlock);
+  auto comparison = rewriter.create<mlir::CmpIOp>(loc, CmpIPredicate::slt, iv,
+                                                  upperBound.getValue()[0]);
 
-    // We also insert the branch operation at the end of the initBlock.
-    rewriter.setInsertionPointToEnd(initBlock);
-    // TODO: should we add more operands here?
-    rewriter.create<mlir::BranchOp>(loc, conditionBlock,
-                                    lowerBound.getValue()[0]);
+  rewriter.create<mlir::CondBranchOp>(loc, comparison, firstBodyBlock,
+                                      ArrayRef<Value>(), endBlock,
+                                      ArrayRef<Value>());
 
-    // Finally, setup the firstBodyBlock.
-    rewriter.setInsertionPointToEnd(firstBodyBlock);
-    // TODO: is it necessary to add this explicit branch operation?
-    rewriter.create<mlir::BranchOp>(loc, lastBodyBlock);
+  // We also insert the branch operation at the end of the initBlock.
+  rewriter.setInsertionPointToEnd(initBlock);
+  // TODO: should we add more operands here?
+  rewriter.create<mlir::BranchOp>(loc, conditionBlock,
+                                  lowerBound.getValue()[0]);
+  llvm::errs() << "The loc?" << loc << "\n";
 
-    // Remove the original forOp and the terminator in the loop body.
-    rewriter.eraseOp(terminator);
-    rewriter.eraseOp(forOp);
-  }
+  // Finally, setup the firstBodyBlock.
+  rewriter.setInsertionPointToEnd(firstBodyBlock);
+  // TODO: is it necessary to add this explicit branch operation?
+  rewriter.create<mlir::BranchOp>(loc, lastBodyBlock);
 
+  // Remove the original forOp and the terminator in the loop body.
+  rewriter.eraseOp(terminator);
+  rewriter.eraseOp(forOp);
   return success();
 }
 
-struct FuncOpLowering : public OpConversionPattern<mlir::FuncOp> {
-  using OpConversionPattern<mlir::FuncOp>::OpConversionPattern;
-  LogicalResult
-  matchAndRewrite(mlir::FuncOp funcOp, ArrayRef<Value> operands,
-                  ConversionPatternRewriter &rewriter) const override {
+struct AffineApplyLowering : public OpRewritePattern<AffineForOp> {
+public:
+  using OpRewritePattern<AffineForOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AffineForOp forOp,
+                                PatternRewriter &rewriter) const override {
 
     llvm::errs() << "OI?\n";
     // Rewrite affine.for operations.
-    /*if (failed(rewriteAffineFor(funcOp, rewriter)))
-      return funcOp.emitOpError("failed to rewrite Affine loops");
-    */
+    if (failed(rewriteAffineFor(forOp, rewriter)))
+      return failure();
+    llvm::errs() << "Success!\n";
     return success();
   }
 };
@@ -358,14 +358,10 @@ struct AffineToStdPass : public circt::AffineToStdBase<AffineToStdPass> {
     target.addLegalDialect<memref::MemRefDialect, scf::SCFDialect,
                            StandardOpsDialect>();
     RewritePatternSet patterns(&getContext());
-    patterns.insert<FuncOpLowering>(m.getContext());
+    patterns.add<AffineApplyLowering>(patterns.getContext());
     llvm::errs() << "APPLY\n";
     if (failed(applyPartialConversion(m, target, std::move(patterns))))
       signalPassFailure();
-
-    llvm::errs() << "Hello world from AffineToStd!"
-                 << "\n";
-    llvm::errs() << m;
   }
 };
 
